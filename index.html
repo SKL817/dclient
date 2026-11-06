@@ -137,6 +137,7 @@
     width:68px;height:68px;border-radius:50%;background:#fff;border:4px solid rgba(255,255,255,.4);
   }
 </style>
+<style>.pay-toggle,#codAmountWrap,#contentsBlock,#serviceWrap{display:none !important;}</style>
 </head>
 <body>
 
@@ -147,9 +148,12 @@
   <p id="clientTitle">Shipment Booking</p>
   <div class="tabs">
     <div class="tab active" id="tabNewBtn" onclick="showTab('new')">New Booking</div>
+    <div class="tab" id="tabRateBtn" onclick="showTab('rate')">Rate Calc</div>
     <div class="tab" id="tabHistBtn" onclick="showTab('hist')">History</div>
   </div>
 </header>
+
+<div id="todayBar" style="background:#E8F0F4;color:#0F2A3C;padding:8px 16px;font-size:13.5px;font-weight:700;text-align:center;">Today: 0 shipments · ₹0</div>
 
 <div id="ndrBanner" onclick="showTab('hist')" style="display:none;background:#C0392B;color:#fff;padding:10px 16px;font-size:13px;font-weight:700;text-align:center;cursor:pointer;"></div>
 
@@ -194,7 +198,7 @@
       </div>
 
       <div class="card">
-        <h2>Payment</h2>
+        <h2>Declared Value</h2>
         <div class="pay-toggle">
           <button type="button" id="btnPrepaid" class="sel" onclick="setPayMode('Prepaid')">Prepaid</button>
           <button type="button" id="btnCOD" onclick="setPayMode('COD')">COD</button>
@@ -209,6 +213,7 @@
 
       <div class="card">
         <h2>Package</h2>
+        <div id="contentsBlock">
         <label>Contents Description</label>
         <div class="chip-row" id="contentChips">
           <button type="button" class="chip" data-value="Clothes">Clothes</button>
@@ -224,7 +229,8 @@
           <button type="button" class="chip" data-value="Gift Items">Gift Items</button>
           <button type="button" class="chip" data-value="Household Items">Household Items</button>
         </div>
-        <input id="productsDesc" placeholder="e.g. Documents, Garments, Electronics">
+        <input id="productsDesc" value="Books" placeholder="e.g. Documents, Garments, Electronics">
+        </div>
         <div class="row">
           <div>
             <label>Quantity</label>
@@ -234,11 +240,10 @@
             <label class="field-required">Weight (grams)</label>
             <input id="weightGrams" inputmode="numeric" placeholder="e.g. 500">
           </div>
-          <div>
+          <div id="serviceWrap">
             <label>Service</label>
             <select id="serviceType">
               <option value="Surface">Surface</option>
-              <option value="Express">Express</option>
             </select>
           </div>
         </div>
@@ -263,6 +268,21 @@
   </div>
 
   <!-- HISTORY TAB -->
+  <!-- RATE CALCULATOR TAB -->
+  <div id="tabRate" style="display:none;">
+    <div class="card">
+      <h2>Shipping Rate (Surface)</h2>
+      <label class="field-required underline-label">Destination Pincode</label>
+      <input class="underline-input" id="rateDestPincode" inputmode="numeric" maxlength="6" placeholder="6-digit pincode">
+      <label class="field-required underline-label">Weight (grams)</label>
+      <input class="underline-input" id="rateWeightGrams" inputmode="numeric" placeholder="e.g. 500">
+      <label class="underline-label">Zone</label>
+      <select class="underline-input" id="rateZone"><option value="auto">Auto-detect from pincode</option></select>
+    </div>
+    <button class="primary" style="margin-bottom:14px;" onclick="calcClientRate()">Calculate</button>
+    <div id="rateResultBox"></div>
+  </div>
+
   <div id="tabHist" style="display:none;">
     <div class="card">
       <h2>Recent Bookings</h2>
@@ -303,7 +323,7 @@
 </div>
 
 
-<div style="display:none" aria-hidden="true"><input type="file" id="scanAddressInput"><input type="file" id="setSkLogoFile"><input type="file" id="setDelhiveryLogoFile"><div id="cameraModal"></div><video id="cameraVideo"></video><div id="tabRate"></div><div id="tabRateBtn"></div></div>
+<div style="display:none" aria-hidden="true"><input type="file" id="scanAddressInput"><input type="file" id="setSkLogoFile"><input type="file" id="setDelhiveryLogoFile"><div id="cameraModal"></div><video id="cameraVideo"></video></div>
 <div id="loginOverlay" style="position:fixed;inset:0;z-index:9999;background:#0F2A3C;display:none;align-items:center;justify-content:center;padding:24px;">
   <div style="background:#fff;border-radius:16px;padding:24px;width:100%;max-width:360px;">
     <h2 style="margin:0 0 4px;color:#0F2A3C;">SK Logistics</h2>
@@ -1980,6 +2000,93 @@ async function confirmDeleteOrder(){
   }
 }
 
+
+// ---- Client rules: Prepaid only, Books, Surface only ----
+const _buildPayload = buildPayload;
+buildPayload = function(){
+  const p = _buildPayload();
+  p.paymentMode = 'Prepaid'; p.codAmount = ''; p.productsDesc = 'Books'; p.serviceType = 'Surface';
+  return p;
+};
+
+// ---- Rate card (edit here) ----  [base up to 500 g, each extra 500 g up to 5 kg, each extra 1 kg above 5 kg]
+const RATE_CARD = {
+  hyd:   { label:'Hyderabad',                 base:55,  add500:20, add1kg:45 },
+  apts:  { label:'AP / Telangana',            base:60,  add500:30, add1kg:50 },
+  zonal: { label:'Zonal (other than AP/TS & Metro)', base:65, add500:40, add1kg:60 },
+  metro: { label:'Metro cities',              base:75,  add500:40, add1kg:65 },
+  roi:   { label:'Rest of India',             base:85,  add500:55, add1kg:75 },
+  spl:   { label:'Special destination',       base:100, add500:60, add1kg:90 }
+};
+const METRO_CITIES = ['mumbai','delhi','new delhi','kolkata','chennai','bengaluru','bangalore'];
+const ZONAL_STATES = ['KA','TN','KL','PY','MH','GA','KARNATAKA','TAMIL NADU','KERALA','PUDUCHERRY','MAHARASHTRA','GOA'];
+const SPECIAL_STATES = ['JK','LA','AR','AS','MN','ML','MZ','NL','SK','TR','AN','LD','JAMMU & KASHMIR','JAMMU AND KASHMIR','LADAKH','ARUNACHAL PRADESH','ASSAM','MANIPUR','MEGHALAYA','MIZORAM','NAGALAND','SIKKIM','TRIPURA','ANDAMAN & NICOBAR ISLANDS','LAKSHADWEEP'];
+function detectZone(pin, city, state){
+  const c = String(city||'').toLowerCase(), s = String(state||'').toUpperCase().trim();
+  if(c.indexOf('hyderabad') >= 0 || c.indexOf('secunderabad') >= 0 || /^500\d{3}$/.test(pin)) return 'hyd';
+  if(['AP','TS','TG','ANDHRA PRADESH','TELANGANA'].indexOf(s) >= 0) return 'apts';
+  if(SPECIAL_STATES.indexOf(s) >= 0) return 'spl';
+  if(METRO_CITIES.some(m => c.indexOf(m) >= 0)) return 'metro';
+  if(ZONAL_STATES.indexOf(s) >= 0) return 'zonal';
+  return 'roi';
+}
+function rateFor(zone, grams){
+  const r = RATE_CARD[zone]; let t = r.base;
+  if(grams > 500) t += Math.ceil((Math.min(grams, 5000) - 500) / 500) * r.add500;
+  if(grams > 5000) t += Math.ceil((grams - 5000) / 1000) * r.add1kg;
+  return t;
+}
+(function(){
+  const sel = document.getElementById('rateZone');
+  Object.keys(RATE_CARD).forEach(k => { const o = document.createElement('option'); o.value = k; o.textContent = RATE_CARD[k].label; sel.appendChild(o); });
+})();
+async function calcClientRate(){
+  const box = document.getElementById('rateResultBox');
+  const pin = document.getElementById('rateDestPincode').value.trim();
+  const grams = parseInt(document.getElementById('rateWeightGrams').value, 10);
+  if(!/^\d{6}$/.test(pin)){ box.innerHTML = '<div class="card"><div style="color:var(--err);">Enter a valid 6-digit pincode</div></div>'; return; }
+  if(!(grams > 0)){ box.innerHTML = '<div class="card"><div style="color:var(--err);">Enter the weight in grams</div></div>'; return; }
+  box.innerHTML = '<div class="card"><p class="hint">Calculating…</p></div>';
+  let zone = document.getElementById('rateZone').value, place = '', serviceNote = '';
+  try{
+    const d = await jsonpRequest('pincode', { pincode: pin }, 15000);
+    if(d && d.success){ place = [d.city, d.state].filter(Boolean).join(', '); if(zone === 'auto') zone = detectZone(pin, d.city, d.state); }
+    else { serviceNote = '<div style="color:var(--err);font-weight:700;font-size:13px;margin-top:8px;">' + escapeHtml((d && d.error) || 'Pincode not serviceable') + '</div>'; }
+  }catch(e){ serviceNote = '<div class="hint" style="margin-top:8px;">Could not verify the pincode</div>'; }
+  if(zone === 'auto') zone = detectZone(pin, '', '');
+  const total = rateFor(zone, grams);
+  box.innerHTML = `<div class="card" style="text-align:center;">
+    <div class="hint" style="margin:0;">${escapeHtml(RATE_CARD[zone].label)} · Surface · ${grams} g${place ? ' · ' + escapeHtml(place) : ''}</div>
+    <div style="font-size:34px;font-weight:800;color:var(--navy);margin:6px 0;">₹${total}</div>
+    ${serviceNote}</div>`;
+}
+
+// ---- Today's total at the top ----
+function chargeOf(h){
+  if(typeof h.charge === 'number' && h.charge > 0) return h.charge;
+  try{ return rateFor(detectZone(String(h.pincode||''), h.city, h.state), parseInt(h.weightGrams,10) || 500); }catch(e){ return 0; }
+}
+function updateTodayBar(){
+  const el = document.getElementById('todayBar'); if(!el) return;
+  const today = new Date().toDateString();
+  let n = 0, sum = 0;
+  getHistory().forEach(h => {
+    if(!h.success) return;
+    const d = new Date(h.timestamp);
+    if(isNaN(d) || d.toDateString() !== today) return;
+    n++; sum += chargeOf(h);
+  });
+  el.textContent = 'Today: ' + n + ' shipment' + (n === 1 ? '' : 's') + ' · ₹' + sum;
+}
+const _saveHistory = saveHistory;
+saveHistory = function(list){ _saveHistory(list); updateTodayBar(); };
+setTimeout(updateTodayBar, 300);
+const _jsonp2 = jsonpRequest;
+jsonpRequest = function(action, d, t){
+  const p = _jsonp2(action, d, t);
+  if(action === 'create'){ p.then(r => { if(r && r.pickupNote){ setTimeout(function(){ try{ showToast(r.pickupNote); }catch(e){} }, 2200); } }).catch(()=>{}); }
+  return p;
+};
 </script>
 
 </body>
