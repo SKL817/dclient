@@ -356,7 +356,7 @@ jsonpRequest = function(action, dataObj, timeoutMs){
 const _getSettings = getSettings;
 getSettings = function(){
   const st = _getSettings();
-  if(CLIENT){ st.sellerName = CLIENT.name; st.sellerAddress = CLIENT.address || ''; st.sellerGst = ''; st.orderPrefix = (CLIENT.code || 'SKD').toUpperCase().slice(0,6); }
+  if(CLIENT){ st.sellerName = CLIENT.name; st.sellerAddress = CLIENT.address || ''; st.sellerGst = ''; st.orderPrefix = 'BEST'; }
   return st;
 };
 function showLogin(msg){
@@ -410,7 +410,7 @@ const DEFAULT_SETTINGS = {
   sellerAddress: 'Bahadurpura X Roads',
   sellerGst: '',
   hsnCode: '',
-  orderPrefix: 'SKD',
+  orderPrefix: 'BEST',
   skLogoBase64: SK_LOGO_DEFAULT,
   delhiveryLogoBase64: DELHIVERY_LOGO_DEFAULT,
   officialLabelCropPercent: 45
