@@ -345,13 +345,23 @@ const LS_CLIENT = 'skl_client_login';
 let CLIENT = null;
 try { CLIENT = JSON.parse(localStorage.getItem(LS_CLIENT)); } catch(e){ CLIENT = null; }
 const CLIENT_ACTIONS = { create:'clientCreate', fetchHistory:'clientHistory', trackShipment:'clientTrack', pincode:'clientPincode', officialLabel:'clientLabel' };
+const CONTACT_MSG = 'Please contact SK Logistics @ 8919855159';
 const _rawJsonp = jsonpRequest;
 jsonpRequest = function(action, dataObj, timeoutMs){
   if(action === 'clientLogin') return _rawJsonp(action, dataObj, timeoutMs);
   const mapped = CLIENT_ACTIONS[action];
   if(!mapped) return Promise.resolve({ success:false, error:'Not available' });
   if(!CLIENT) return Promise.reject(new Error('Please log in'));
-  return _rawJsonp(mapped, Object.assign({}, dataObj, { clientCode: CLIENT.code }), timeoutMs);
+  return _rawJsonp(mapped, Object.assign({}, dataObj, { clientCode: CLIENT.code }), timeoutMs).then(function(r){
+    if(!r || !r.success){
+      let msg = CONTACT_MSG;
+      if(action === 'pincode' && r && r.error) msg = r.error;
+      return { success:false, error: msg };
+    }
+    if(r.remarks) r.remarks = [];
+    delete r.pickupNote;
+    return r;
+  }, function(){ throw new Error(CONTACT_MSG); });
 };
 const _getSettings = getSettings;
 getSettings = function(){
@@ -373,7 +383,7 @@ async function doLogin(){
     CLIENT = r.client; localStorage.setItem(LS_CLIENT, JSON.stringify(CLIENT));
     localStorage.removeItem(LS_HISTORY);
     location.reload();
-  }catch(e){ document.getElementById('loginErr').textContent = e.message; btn.disabled = false; btn.textContent = 'Continue'; }
+  }catch(e){ document.getElementById('loginErr').textContent = CONTACT_MSG; btn.disabled = false; btn.textContent = 'Continue'; }
 }
 function doLogout(){
   if(!confirm('Log out?')) return;
@@ -385,7 +395,7 @@ if(!CLIENT) setTimeout(function(){
     if(!r.success) throw new Error(r.error || 'Setup error');
     CLIENT = r.client; CLIENT.code = ''; applyClientTitle();
     if(typeof loadSharedHistory === 'function') loadSharedHistory();
-  }).catch(e => showLogin(e.message));
+  }).catch(e => showLogin(CONTACT_MSG));
 }, 0); else { applyClientTitle(); }
 
 
@@ -700,7 +710,7 @@ async function pasteFromClipboard(){
     if(txt) document.getElementById('pasteAddressText').value = txt;
     else showToast('Clipboard is empty');
   }catch(err){
-    showToast('Could not read clipboard — long-press in the box and choose Paste');
+    showToast('Long-press in the box and choose Paste');
   }
 }
 function applyPastedAddress(){
@@ -940,10 +950,10 @@ async function loadSharedHistory(){
       saveHistory(data.entries || []);
       updateNdrBanner();
     } else {
-      showToast(data.error || 'Could not load shared history — showing local copy');
+      showToast(CONTACT_MSG);
     }
   }catch(err){
-    showToast('Could not reach server — showing local copy');
+    showToast(CONTACT_MSG);
   }
   renderHistory();
 }
@@ -1068,7 +1078,7 @@ function validateForm(){
   }
   const settings = getSettings();
   if(!settings.appsScriptUrl || settings.appsScriptUrl.indexOf('PASTE_YOUR') === 0){
-    showToast('Add your Apps Script URL in Settings first');
+    showToast(CONTACT_MSG);
     openSettings();
     return false;
   }
@@ -1168,6 +1178,7 @@ async function submitBooking(){
 }
 
 function handleResult(payload, data){
+  if(!data || !data.success){ data = { success:false, error: CONTACT_MSG }; }
   const box = document.getElementById('resultBox');
   const entry = {
     orderId: payload.orderId,
@@ -1227,13 +1238,13 @@ function handleResult(payload, data){
     box.innerHTML = `
       <div class="result err">
         <div><strong>Booking failed</strong></div>
-        <div class="hint">${escapeHtml(entry.remarks || 'Check your Apps Script URL and Delhivery credentials.')}</div>
+        <div class="hint">${escapeHtml(CONTACT_MSG)}</div>
         <div class="actions">
           <button class="ghost" onclick="submitBooking()">Retry</button>
         </div>
         ${debugHtml}
       </div>`;
-    showToast('Booking failed — see details above');
+    showToast(CONTACT_MSG);
   }
   window.scrollTo({top:0, behavior:'smooth'});
 }
@@ -1262,12 +1273,12 @@ async function calculateShippingRate(){
     return;
   }
   if(!settings.originPincode){
-    showToast('Set your Origin Pincode in Settings first');
+    showToast(CONTACT_MSG);
     openSettings();
     return;
   }
   if(!settings.appsScriptUrl || settings.appsScriptUrl.indexOf('PASTE_YOUR') === 0){
-    showToast('Set up your Apps Script URL in Settings first');
+    showToast(CONTACT_MSG);
     return;
   }
 
@@ -1390,7 +1401,7 @@ async function showInternalTracking(waybill){
     const data = await jsonpRequest('trackShipment', { waybill }, 15000);
     if(!data.success){
       content.innerHTML = `
-        <p class="hint">${escapeHtml(data.error || 'Could not fetch tracking')}</p>
+        <p class="hint">${escapeHtml(CONTACT_MSG)}</p>
         <button class="ghost" style="width:100%;margin-top:10px;" onclick="openTracking('${escapeAttr(waybill)}')">Open on Delhivery website</button>`;
       return;
     }
@@ -1420,7 +1431,7 @@ async function showInternalTracking(waybill){
       <button class="ghost" style="width:100%;margin-top:14px;" onclick="openTracking('${escapeAttr(waybill)}')">Open on Delhivery website</button>`;
   }catch(err){
     content.innerHTML = `
-      <p class="hint">${escapeHtml(err.message || 'Could not fetch tracking')}</p>
+      <p class="hint">${escapeHtml(CONTACT_MSG)}</p>
       <button class="ghost" style="width:100%;margin-top:10px;" onclick="openTracking('${escapeAttr(waybill)}')">Open on Delhivery website</button>`;
   }
 }
@@ -1609,7 +1620,7 @@ async function fetchOfficialLabel(orderId){
   if(win){
     win.document.write('<body style="font-family:sans-serif;padding:20px;color:#333;">Fetching label from Delhivery…</body>');
   }
-  showToast('Fetching official label from Delhivery…');
+  showToast('Preparing label…');
   try{
     const data = await jsonpRequest('officialLabel', { waybill: entry.waybill }, 45000);
     if(data.success && data.pdfBase64){
@@ -1619,12 +1630,12 @@ async function fetchOfficialLabel(orderId){
       if(win) win.location.href = url;
       else window.open(url, '_blank');
     } else {
-      if(win) win.document.body.innerHTML = 'Could not fetch official label: ' + escapeHtml(data.error || 'unknown error');
-      showToast(data.error || 'Could not fetch official label');
+      if(win) win.document.body.innerHTML = escapeHtml(CONTACT_MSG);
+      showToast(CONTACT_MSG);
     }
   }catch(err){
-    if(win) win.document.body.innerHTML = 'Could not fetch official label: ' + escapeHtml(err.message || 'unknown error');
-    showToast(err.message || 'Could not fetch official label');
+    if(win) win.document.body.innerHTML = escapeHtml(CONTACT_MSG);
+    showToast(CONTACT_MSG);
   }
 }
 
@@ -1780,7 +1791,7 @@ async function downloadLabelPdf(orderId){
       showToast('Label PDF downloaded');
     }catch(err){
       if(iframe.parentNode) document.body.removeChild(iframe);
-      showToast('Could not generate PDF: ' + err.message);
+      showToast(CONTACT_MSG);
     }
   };
 
@@ -1811,7 +1822,7 @@ async function shareLabelToPrinterApp(orderId){
       canvas.toBlob(async function(blob){
         if(iframe.parentNode) document.body.removeChild(iframe);
         if(!blob){
-          showToast('Could not generate label image');
+          showToast(CONTACT_MSG);
           return;
         }
 
@@ -1825,7 +1836,7 @@ async function shareLabelToPrinterApp(orderId){
             await Share.share({ title: 'Shipping Label', text: entry.orderId, url: uriResult.uri });
           }catch(shareErr){
             if(!(shareErr && shareErr.message && shareErr.message.indexOf('cancel') !== -1)){
-              showToast('Could not share label: ' + (shareErr.message || 'unknown error'));
+              showToast(CONTACT_MSG);
             }
           }
           return;
@@ -1846,7 +1857,7 @@ async function shareLabelToPrinterApp(orderId){
       }, 'image/jpeg', 0.95);
     }catch(err){
       if(iframe.parentNode) document.body.removeChild(iframe);
-      showToast('Could not generate label image: ' + err.message);
+      showToast(CONTACT_MSG);
     }
   };
 
@@ -1876,7 +1887,7 @@ document.getElementById('phone').addEventListener('input', function(){
   this.value = this.value.replace(/\D/g,'').slice(0,10);
 });
 if(!getSettings().appsScriptUrl || getSettings().appsScriptUrl.indexOf('PASTE_YOUR') === 0){
-  setTimeout(()=>{ showToast('Set up your Apps Script URL in Settings'); }, 600);
+  setTimeout(()=>{ showToast(CONTACT_MSG); }, 600);
 }
 
 // ---- Install as app (PWA) ----
@@ -2081,12 +2092,6 @@ function updateTodayBar(){
 const _saveHistory = saveHistory;
 saveHistory = function(list){ _saveHistory(list); updateTodayBar(); };
 setTimeout(updateTodayBar, 300);
-const _jsonp2 = jsonpRequest;
-jsonpRequest = function(action, d, t){
-  const p = _jsonp2(action, d, t);
-  if(action === 'create'){ p.then(r => { if(r && r.pickupNote){ setTimeout(function(){ try{ showToast(r.pickupNote); }catch(e){} }, 2200); } }).catch(()=>{}); }
-  return p;
-};
 </script>
 
 </body>
