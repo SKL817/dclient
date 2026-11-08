@@ -1711,6 +1711,7 @@ function buildLabelDocumentHtml(entry, settings, autoPrint){
       <div class="side">
         <div>${escapeHtml(entry.paymentMode)}</div>
         <div>${escapeHtml(entry.serviceType || 'Surface')}</div>
+        ${entry.weightGrams ? `<div>Wt: ${Number(entry.weightGrams) >= 1000 ? (Number(entry.weightGrams)/1000) + ' kg' : escapeHtml(entry.weightGrams) + ' g'}</div>` : ''}
         ${entry.paymentMode === 'COD' ? `<div class="amt">₹${escapeHtml(entry.codAmount || '')}</div>` : ''}
       </div>
     </div>
